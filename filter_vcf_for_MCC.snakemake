@@ -1,0 +1,115 @@
+## 
+## Raw VCF processing script. Produce variant annotated VCF for downstream subsetting. 
+## Wenjia Cao
+## Created on Mon May 2 2022
+##
+import os
+from os import listdir
+from os.path import join
+import pandas as pd
+import re
+import sys
+from glob import glob
+import datetime
+
+# Get path to VCF from environmental variable
+curr_dir = os.getcwd()
+print(curr_dir)
+#vcf_name = os.environ.get("RAWVCF")
+vcf_name = 'merged.vcf.gz'
+print(vcf_name)
+configfile:"filter_vcf_config.json"
+chunks = ['chr1:1-30000001','chr1:30000001-60000001','chr1:60000001-90000001','chr1:90000001-120000001','chr1:120000001-150000001','chr1:150000001-180000001','chr1:180000001-210000001','chr1:210000001-240000001','chr1:240000001-248956422','chr2:1-30000001','chr2:30000001-60000001','chr2:60000001-90000001','chr2:90000001-120000001','chr2:120000001-150000001','chr2:150000001-180000001','chr2:180000001-210000001','chr2:210000001-240000001','chr2:240000001-242193529','chr3:1-30000001','chr3:30000001-60000001','chr3:60000001-90000001','chr3:90000001-120000001','chr3:120000001-150000001','chr3:150000001-180000001','chr3:180000001-198295559','chr4:1-30000001','chr4:30000001-60000001','chr4:60000001-90000001','chr4:90000001-120000001','chr4:120000001-150000001','chr4:150000001-180000001','chr4:180000001-190214555','chr5:1-30000001','chr5:30000001-60000001','chr5:60000001-90000001','chr5:90000001-120000001','chr5:120000001-150000001','chr5:150000001-180000001','chr5:180000001-181538259','chr6:1-30000001','chr6:30000001-60000001','chr6:60000001-90000001','chr6:90000001-120000001','chr6:120000001-150000001','chr6:150000001-170805979','chr7:1-30000001','chr7:30000001-60000001','chr7:60000001-90000001','chr7:90000001-120000001','chr7:120000001-150000001','chr7:150000001-159345973','chr8:1-30000001','chr8:30000001-60000001','chr8:60000001-90000001','chr8:90000001-120000001','chr8:120000001-145138636','chr9:1-30000001','chr9:30000001-60000001','chr9:60000001-90000001','chr9:90000001-120000001','chr9:120000001-138394717','chr10:1-30000001','chr10:30000001-60000001','chr10:60000001-90000001','chr10:90000001-120000001','chr10:120000001-133797422','chr11:1-30000001','chr11:30000001-60000001','chr11:60000001-90000001','chr11:90000001-120000001','chr11:120000001-135086622','chr12:1-30000001','chr12:30000001-60000001','chr12:60000001-90000001','chr12:90000001-120000001','chr12:120000001-133275309','chr13:1-30000001','chr13:30000001-60000001','chr13:60000001-90000001','chr13:90000001-114364328','chr14:1-30000001','chr14:30000001-60000001','chr14:60000001-90000001','chr14:90000001-107043718','chr15:1-30000001','chr15:30000001-60000001','chr15:60000001-90000001','chr15:90000001-101991189','chr16:1-30000001','chr16:30000001-60000001','chr16:60000001-90000001','chr16:90000001-90338345','chr17:1-30000001','chr17:30000001-60000001','chr17:60000001-83257441','chr18:1-30000001','chr18:30000001-60000001','chr18:60000001-80373285','chr19:1-30000001','chr19:30000001-58617616','chr20:1-30000001','chr20:30000001-60000001','chr20:60000001-64444167','chr21:1-30000001','chr21:30000001-46709983','chr22:1-30000001','chr22:30000001-50818468','chrX:1-30000001','chrX:30000001-60000001','chrX:60000001-90000001','chrX:90000001-120000001','chrX:120000001-150000001','chrX:150000001-156040895','chrY:1-30000001','chrY:30000001-57227415','chrM:1-16569']
+
+rule all:
+   input:
+      slivar_vcf = join(curr_dir, "vep.vcf.gz"),
+      slivar_vci = join(curr_dir, "vep.vcf.gz.tbi")
+
+#### Split the VCFs,then merge
+rule subset:
+    input: 
+        raw_vcf = vcf_name,
+    output:
+        vcf = join(curr_dir,"subset.{chunks}.vcf.gz"),
+    params:
+        rname = "subset",
+        chunk="{chunks}",
+        to_keep = "MCC_burden/covar_txts/MCC_CSI_1125.args",
+    shell:
+        """
+        set +u
+        module load GATK/4.2.0.0
+        gatk --java-options '-Xmx24g' SelectVariants --reference Homo_sapiens_assembly38.fasta -V {input.raw_vcf} -O {output.vcf} --exclude-non-variants --intervals {params.chunk} -sn {params.to_keep}
+        """
+
+
+rule list_vcfs:
+    input: 
+        vcf = expand(join(curr_dir,"subset.{chunks}.vcf.gz"), chunks=chunks),
+    output:
+        list = join(curr_dir,"subsetedVCFs.list"),
+    params:
+        rname = "list",
+    shell:
+        """
+        set +u
+        ls subset.*.vcf.gz > {output.list}
+        """
+
+rule merge:
+    input: 
+        list = join(curr_dir,"subsetedVCFs.list"),
+    output:
+        vcf = join(curr_dir,"cleaned.vcf.gz"),
+    params:
+        rname = "merge",
+    shell:
+        """
+        set +u
+        module load GATK/4.2.0.0  
+        gatk MergeVcfs --OUTPUT {output.vcf} --INPUT {input.list}
+        """
+
+rule decompose:
+   input:
+      cleaned_vcf = join(curr_dir, "cleaned.vcf.gz"),
+   output:
+      decompose_vcf = join(curr_dir, "vt_decompose.vcf.gz"),
+      decompose_vci = join(curr_dir, "vt_decompose.vcf.gz.tbi"),
+   params:
+      genome = config['references']['GENOME'],
+      unzipped_vcf = temp(join(curr_dir, "vt_decompose.vcf")),
+      rname = "decompose"
+   shell:
+      """
+      set +u
+      module load vt/0.57721
+      vt decompose -s {input.cleaned_vcf} | vt normalize -r {params.genome} - > {params.unzipped_vcf}
+      module load bcftools
+      bgzip {params.unzipped_vcf}
+      tabix -p vcf {output.decompose_vcf}
+      """
+
+
+rule vep:
+   input:
+      decompose_vcf = join(curr_dir, "vt_decompose.vcf.gz"),
+   output:
+      vep_vcf = join(curr_dir, "vep.vcf.gz"),
+      vep_vci = join(curr_dir, "vep.vcf.gz.tbi"),
+   params:
+      genome = config['references']['GENOME'],
+      vep_assembly = config['references']['VEP_ASSEMBLY'],
+      unzipped_vcf = temp(join(curr_dir, "vep.vcf")),
+      rname = "vep"
+   shell:
+      """
+      set +u
+      module load VEP
+      vep -i {input.decompose_vcf} -o {params.unzipped_vcf} --force_overwrite --fork 12 --fasta $VEP_CACHEDIR/{params.vep_assembly}.fa --species human --assembly {params.vep_assembly} --cache --dir_cache $VEP_CACHEDIR --offline --format vcf --everything --pick --vcf
+      module load bcftools
+      bgzip {params.unzipped_vcf}
+      tabix -p vcf {output.vep_vcf}      
+      """
+
