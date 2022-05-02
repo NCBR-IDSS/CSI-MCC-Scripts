@@ -1,2 +1,2 @@
 # CSI-MCC-Scripts
-All scripts for MCC analysis
+This repo hosts all scripts for MCC analysis.
